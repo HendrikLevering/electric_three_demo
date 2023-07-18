@@ -1,141 +1,221 @@
 (ns app.three
+  #?(:cljs (:require-macros [app.three :refer [gen_factory]]))
   (:require
-   #?(:cljs ["three" :as three])
-   #?(:cljs ["three/examples/jsm/controls/OrbitControls" :refer [OrbitControls]])
-   #?(:cljs [goog.object :as gobj])
-   [missionary.core :as m]
    [hyperfiddle.electric :as e]
+   #?(:cljs ["three" :as three])
+   [contrib.missionary-contrib :as mx]
+   [missionary.core :as m]
    [hyperfiddle.electric-dom2 :as dom])
-   (:import #?(:clj (clojure.lang IDeref))
-           (hyperfiddle.electric Pending Failure FailureInfo)
-           (missionary Cancelled)))
+   (:import  (hyperfiddle.electric Pending)))
 
 
-#?(:cljs def threejs three)
+#?(:clj (defn flatten-props
+          ([m] (flatten-props m []))
+          ([m p]
+           (if (map? m)
+             (mapcat
+              (fn [[k v]]
+                (flatten-props v (conj p k))) m)
+             [[p m]]))))
+
+
+(defn interop-js
+  ([cls]                                  #?(:cljs (new cls)))
+  ([cls a#]                               #?(:cljs (new cls a#)))
+  ([cls a# b#]                            #?(:cljs (new cls a# b#)))
+  ([cls a# b# c#]                         #?(:cljs (new cls  a# b# c#)))
+  ([cls a# b# c# d#]                      #?(:cljs (new cls a# b# c# d#)))
+  ([cls a# b# c# d# e#]                   #?(:cljs (new cls a# b# c# d# e#)))
+  ([cls a# b# c# d# e# f#]                #?(:cljs (new cls a# b# c# d# e# f#)))
+  ([cls a# b# c# d# e# f# g#]             #?(:cljs (new cls a# b# c# d# e# f# g#)))
+  ([cls a# b# c# d# e# f# g# h#]          #?(:cljs (new cls a# b# c# d# e# f# g# h#)))
+  ([cls a# b# c# d# e# f# g# h# i#]       #?(:cljs (new cls a# b# c# d# e# f# g# h# i#)))
+  ([cls a# b# c# d# e# f# g# h# i# j#]    #?(:cljs (new cls a# b# c# d# e# f# g# h# i# j#)))
+  ([cls a# b# c# d# e# f# g# h# i# j# k#] #?(:cljs (new cls a# b# c# d# e# f# g# h# i# j# k#))))
+
+(e/def three_obj)
+(e/def rerender-flag)
+(e/def view-port-ratio)
+
+(defmacro mark-render! []
+  `(reset! rerender-flag true))
+
+
+(defmacro bare-obj [cls  unmount-fns body]
+  (let [args  (first body)
+        body-args (rest body)
+        s (symbol cls)]
+    `(do
+       (println ~cls ~@args (type (symbol ~cls)))
+       (let [obj# (apply interop-js ~s ~args)]
+         (println obj#)
+         (set! (.-listeners obj#) (atom {}))
+         (binding [three_obj obj#]
+           (e/on-unmount #(mark-render!))
+           ~@body-args
+           ~@unmount-fns
+           obj#)))))
+
+
+(defmacro disposable-obj [cls body]
+  (println body)
+  `(do
+     (bare-obj ~cls
+               [(e/on-unmount #(.dipose three_obj))]
+               ~body)))
+
+
+(defmacro scene-obj [cls body]
+  `(let [obj# (disposable-obj ~cls ~body)]
+
+     (e/on-unmount #(.removeFromParent obj#))
+     (.add three_obj obj#)
+     (mark-render!)
+
+     obj#))
+
+
+(defmacro set-prop-fn [path]
+  `(fn [val#]
+     (set! (.. three_obj ~@path) val#)
+     (mark-render!)))
+
+
+(defmacro unmount-prop [fn]
+  `(new (m/observe (fn [!#] (!# nil) ~fn))))
+
+
+(defmacro props [m]
+  `(do ~@(map (fn [[k v]]
+                (let [path (map #(symbol (str "-" (name %))) k)]
+                  `(let [org-val# (.. three_obj ~@path)]
+                     ((set-prop-fn ~path) ~v)
+                     (unmount-prop #((set-prop-fn ~path) org-val#))))) (sort-by first (flatten-props m)))))
+
+
+(defmacro gen_factory [mname kw macro]
+  (let [full-macro (symbol (resolve macro))]
+    `(do
+       (defmacro ~mname [& body#]
+         (list  '~full-macro ~kw body#)))
+    ))
 
 
 (comment
-  (flatten-props {:a {:b {:c 1 :d 2} :e 3} :f 4})
+  (macroexpand '(gen_factory WebGLRenderer :three/WebGLRenderer disposable-obj)))
 
-  ( first '([[:a :b :c] 1] [[:a :b :b] 2] [[:a :e] 3] [[:f] 4]))
-  )
+(gen_factory WebGLRenderer :three/WebGLRenderer disposable-obj)
+(gen_factory PerspectiveCamera :three/PerspectiveCamera disposable-obj)
+(gen_factory Scene :three/Scene disposable-obj)
+(gen_factory Mesh :three/Mesh scene-obj)
+(gen_factory Group :three/Group scene-obj)
 
-(e/defn material [m]
-  #?(:cljs
-     (let [mat (three/MeshBasicMaterial. (clj->js m))]
-       (println "mount mat")
-       (e/on-unmount #(do
-                        (println "unmount material ")
-                        (.dispose mat)))
-       mat)))
 
-(e/defn meshlambertmaterial [m]
-  #?(:cljs
-     (let [mat (three/MeshLambertMaterial.  (clj->js m))]
-       (e/on-unmount #(do
-                        (.dispose mat)))
-       mat)))
-
-(e/defn box [[x y z]]
-  #?(:cljs
-     (let [geometry (three/BoxGeometry. x y z)]
-       (println "mount box" x)
-       (e/on-unmount #(do
-                        (println "unmount box " x)
-                        (.dispose geometry)))
-       geometry)))
+;geometries
+(gen_factory BoxGeometry :three/BoxGeometry disposable-obj)
+(gen_factory CapsuleGeometry :three/CapsuleGeometry disposable-obj)
+(gen_factory CircleGeometry :three/CircleGeometry disposable-obj)
+(gen_factory ConeGeometry :three/ConeGeometry disposable-obj)
+(gen_factory CylinderGeometry :three/CylinderGeometry disposable-obj)
+(gen_factory DodecahedronGeometry :three/DodecahedronGeometry disposable-obj)
+(gen_factory EdgesGeometry :three/EdgesGeometry disposable-obj)
+(gen_factory ExtrudeGeometry :three/ExtrudeGeometry disposable-obj)
 
 
 
-(defn -mesh [opts geometry material]
-  #?(:cljs
-     (let [{[x y z] :pos key :key } opts
-           obj (three/Mesh. geometry material)]
-       (gobj/set obj "opts" opts)
-       (.translateX obj x)
-       (.translateY obj y)
-       (.translateZ obj z)
-       obj)))
+;lights
 
-(comment
-  ({} false true)
-  ({} 1
-      )
-  )
+(gen_factory AmbientLight :three/AmbientLight scene-obj)
+(gen_factory AmbientLightProbe :three/AmbientLightProbe scene-obj)
+(gen_factory DirectionalLight :three/DirectionalLight scene-obj)
+(gen_factory HemisphereLight :three/HemisphereLight scene-obj)
+(gen_factory HemisphereLightProbe :three/HemisphereLightProbe scene-obj)
+(gen_factory PointLight :three/PointLight scene-obj)
+(gen_factory RectAreaLightHelper :three/PRectAreaLightHelper scene-obj)
+(gen_factory SpotLight :three/SpotLight scene-obj)
 
-(e/defn mesh [opts geometry material]
-  #?(:cljs
-     (let [obj (-mesh opts geometry material)]
-       (println "mount mesh")
-       (e/on-unmount #(do
-                        (println "unmount mesh ")
-                        (.removeFromParent obj)
-                        (.dispose obj)))
-       obj)))
 
+;materials
+(gen_factory MeshLambertMaterial :three/MeshLambertMaterial disposable-obj)
+(gen_factory MeshBasicMaterial :three/MeshBasicMaterial disposable-obj)
+(gen_factory MeshStandardMaterial :three/MeshStandardMaterial disposable-obj)
+
+
+(defn -control-render [mat s]
+  (reset! s true))
+
+(e/defn cam_mat [controls]
+  (if (= "visible" e/dom-visibility-state)
+    (new (m/sample #(do
+                      (.update controls)
+                      [(vec (.. controls -object -position))  (vec (.. controls -object -quaternion))]) e/<clock))
+    (throw (Pending.)))) ;
+
+
+(defmacro control []
+  `(when (= "visible" e/dom-visibility-state)
+    (let [mat# (new cam_mat three_obj)]
+      (-control-render mat# rerender-flag))))
+
+
+(gen_factory OrbitControls :orbitcontrols/OrbitControls disposable-obj)
+
+(defn -render [renderer scene camera tick !rerender]
+  #?(:cljs (when @!rerender
+             (print "render")
+             (reset! !rerender false)
+             (.updateProjectionMatrix camera)
+             (.render renderer scene camera))))
 
 (defn -size [rect] [(.-width rect) (.-height rect)])
 
 (defn size> [node state]
   #?(:cljs (->> (m/observe (fn [!]
                              (! (-> node .getBoundingClientRect))
-                             (let [resize-observer (js/ResizeObserver. (fn [[nd] _] (println "resize")(swap! state update :a inc)(! (-> nd .-target .getBoundingClientRect))))]
+                             (let [resize-observer (js/ResizeObserver. (fn [[nd] _] (! (-> nd .-target .getBoundingClientRect))))]
                                (.observe resize-observer node)
                                #(.disconnect resize-observer))))
                 (m/relieve {}))))
 
 
-(defn -camera [fov aspect near far [x y z]]
-  #?(:cljs (let [cam (three/PerspectiveCamera. fov aspect near far)]
-             (set! (.. cam -position -x) x)
-             (set! (.. cam -position -y) y)
-             (set! (.. cam -position -z) z)
-             (.updateProjectionMatrix cam)
-             cam)))
+(defn node-resized [flag]
+  (fn [renderer w h]
+    (.setSize renderer w h)
+    (reset! flag true)))
 
 
-(e/defn camera [fov near far pos state]
-  #?(:cljs
-     (let [[width height] (-size (new (size>  dom/node state)))
-           cam (-camera fov (/ width height) near far pos)]
-       (e/on-unmount #(do
-                        (.removeFromParent cam)
-                        (.dispose cam)))
-       cam)))
+#?(:cljs (defn dom-listener [obj typ f]
+           (swap! (.-listeners obj) update typ #(if (nil? %) #{f} (conj % f)))
+           #(swap! (.-listeners obj)   update typ (fn [x] (disj x f)))))
 
-(defn -scene [children]
-  #?(:cljs (let [s (three/Scene.)]
-             (dorun (for [child children]
-                      (.add s child)))
-             s)))
+#?(:cljs (defn listen> ; we intend to replace this in UI5 workstream
+           ([node event-type] (listen> node event-type identity))
+           ([node event-type keep-fn!]
+            (m/relieve {}
+                       (m/observe (fn [!]
+                                    (dom-listener node event-type #(when-some [v (keep-fn! %)]
+                                                                     (! v)))))))))
 
-(e/defn scene [opts children]
-  #?(:cljs
-     (let [s (-scene children)]
-       (e/on-unmount #(do
-                        (.removeFromParent s)
-                        (.dispose s)))
-       s)))
+(defmacro on!
+  "Call the `callback` clojure function on event.
+   (on! \"click\" (fn [event] ...)) "
+  ([event-name callback] `(on! three_obj ~event-name ~callback))
+  ([dom-node event-name callback]
+   `(new (->> (listen> ~dom-node ~event-name ~callback)
+              (m/reductions {} nil)))))
 
-(defn create-render-fn []
-  (let [v (volatile! [0 0])]
-    (fn [renderer scene camera width height controls c]
-      (let [[w h] @v]
-        (when (or (not= width w) (not= height h))
-          (.setSize renderer width height)
-          (vreset! v [width height])))
-      (.update controls)
-      (.render renderer scene camera))))
-
-(e/defn dom-mousemove
-  "mousemove events"
-  [node]
-  (e/client (new (m/reductions {} nil (e/listen> node "pointermove" (fn [e][(.-pageX e) (.-pageY e)]))))))
-
-(e/defn dom-click
-  "mousemove events"
-  [node]
-  (e/client (new (m/reductions {} nil (e/listen> node "click" (fn [e] [(.-pageX e) (.-pageY e) (rand-int 1000000000)]))))))
+(defmacro on
+  "Run the given electric function on event.
+  (on \"click\" (e/fn [event] ...))"
+  ;; TODO add support of event options (see `event*`)
+  ;(^:deprecated [typ]  `(new Event ~typ false)) ; use `on!` for local side effects
+  ([typ F] `(on three_obj ~typ ~F))
+  ([node typ F] `(binding [three_obj ~node]
+                   (let [[state# v#] (e/for-event-pending-switch [e# (listen> ~node ~typ)] (new ~F e#))]
+                     (case state#
+                       (::e/init ::e/ok) v# ; could be `nil`, for backward compat we keep it
+                       (::e/pending) (throw (Pending.))
+                       (::e/failed)  (throw v#))))))
 
 
 (defn -intersected [x y scene camera]
@@ -145,56 +225,8 @@
        (set! (.-x pointer) x)
        (set! (.-y pointer) y)
        (.setFromCamera caster pointer camera)
-       (first (seq (.intersectObjects caster (.-children scene) false))))))
-
-
-(defn intersected []
-  (let [v (volatile! nil)]
-    (fn [[x y] scene camera]
-      #?(:cljs
-         (let [intersection  (when-let [i (-intersected x y scene camera)]
-                               (js->clj i))
-               i-obj (get intersection "object")
-               last-intersection @v
-               l-obj (get last-intersection "object")]
-           (do
-             (vreset! v intersection)
-
-             (if intersection
-               (if (== i-obj l-obj)
-                 {:on-move intersection}
-                 (if last-intersection
-                   {:on-move intersection :on-enter intersection :on-leave last-intersection}
-                   {:on-move intersection :on-enter intersection}))
-               (if last-intersection
-                 {:on-leave last-intersection}
-                 {}))))))))
-
-
-
-(defn -trigger-event [k event]
-  #?(:cljs
-     (when-let [d (k event)]
-       (when-let [fn (-> d (get "object") .-opts k)]
-         (fn d)))))
-
-(defn process-event [event]
-  #?(:cljs
-     (do
-       (-trigger-event :on-leave event)
-       (-trigger-event :on-enter event)
-       (-trigger-event :on-move event))))
-
-(defn -clicked [[x y ] _ scene camera]
-  #?(:cljs
-     (when-let [i (-intersected x y scene camera)]
-       (-trigger-event :on-click {:on-click (js->clj i)}))))
-
-
-(defn process-events [events]
-  #?(:cljs
-     (doall (map process-event events))))
-
+       (when-let [i (first (seq (.intersectObjects caster (.-children scene) true)))]
+         (js->clj i)))))
 
 (defn -pointer [rect [x y]]
   (let [[width height] (-size rect)
@@ -204,85 +236,102 @@
         py (- (dec (* 2 (/ dy height))))]
     [px py]))
 
-#?(:cljs (defn -create-renderer [node opts]
-           (let [renderer (three/WebGLRenderer. (clj->js opts))]
-             (.appendChild node
-                           (.-domElement renderer))
-             renderer)))
+(defn -call-event-stack [{obj :obj e :e data :data } typ]
+  (let [listeners (deref (.. obj -listeners))]
+    (dorun (map #(% {:obj obj :e e :data data}) (listeners typ)))
+     (when-let [parent (.-parent obj)]
+      (-call-event-stack {:obj parent :e e :data data} typ))))
 
+(defn -on-event [e rect scene camera typ]
+  (let [[px py] (-pointer rect [(.-pageX e) (.-pageY e)])
+        obj (-intersected px py scene camera)]
+    (when obj
+      (-call-event-stack {:obj (obj "object") :e e :data obj} typ))))
 
-(e/defn camera-matrix [controls]
-  (if (= "visible" e/dom-visibility-state)
-    (new (m/sample #(do
-                      (.update controls)
-                      [(vec (.. controls -object -position))  (vec (.. controls -object -quaternion))]) e/<clock))
-    (throw (Pending.)))) ; tab is hidden, no clock. (This guards NPEs in userland)
-
-(e/defn canvas [state opts scene camera]
+(defn intersected [v x y scene camera]
   #?(:cljs
-     (let [s  e/system-time-ms
-           render-opts (:renderer opts)
-           renderer (-create-renderer dom/node render-opts)
-           controls (OrbitControls. camera (.-domElement renderer))
-           render-fn (create-render-fn)
-           rect (new (size>  dom/node state))
-           [width height] (-size rect)
-           cam_mat  (camera-matrix. controls)
-           #_#_moves (dom-mousemove. dom/node)
-           #_#_[x y e] (dom-click. dom/node)
+     (let [intersection  (-intersected x y scene camera)
+           i-obj (get intersection "object")
+           last-intersection @v
+           l-obj (get last-intersection "object")]
+       (do
+         (vreset! v intersection)
+         (if intersection
+           (if (== i-obj l-obj)
+             {"pointermove" intersection}
+             (if last-intersection
+               {"pointermove" intersection "pointerout" last-intersection "pointerenter" intersection }
+               {"pointermove" intersection "pointerenter" intersection}))
+           (if last-intersection
+             {"pointerout" last-intersection}
+             {}))))))
 
-           #_#_hovered  ((intersected) (-pointer rect moves) scene camera)]
-       (println width)
-       ;const controls = new OrbitControls( camera, renderer.domElement );
-       #_(-clicked (-pointer rect [x y]) e  scene camera)
-       #_(when (seq hovered)
-           (process-events [hovered]))
-       (.setPixelRatio renderer window/devicePixelRatio)
-       (render-fn renderer scene camera width height controls cam_mat)
+(defn -on-event2 []
+  (let [v (volatile! nil)]
+    (fn [e rect scene camera typ]
+      (let [[px py] (-pointer rect [(.-pageX e) (.-pageY e)])
+            obj (intersected v px py scene camera)]
+        (dorun  (map (fn [[k v]]
+                       (-call-event-stack {:obj (v "object") :e e :data v} k)) obj)
+                )))))
 
-       (e/on-unmount #(do
-                        (.removeFromParent renderer)
-                        (.dispose renderer))))))
-
-(defmacro element
-  [name])
-
-(e/defn ambientlight [color intensity]
-  #?(:cljs
-     (let [light (new three/AmbientLight color intensity)]
-       (e/on-unmount #(do
-                        (.removeFromParent light)
-                        (.dispose light)))
-       light)))
+(e/defn init-callbacksystem [rect scene camera]
+  (let [f (-on-event2)]
+    (dom/on! "pointermove" #(f % rect scene camera "pointermove")))
+  (dom/on! "click" #(-on-event % rect scene camera "click")))
 
 
-(defn -directionalLight [color intensity pos]
-  #?(:cljs (let [light (three/DirectionalLight. color intensity)
-                 [x y z] pos]
-             (.normalize (.set (.-position light) x y z))
-             light)))
+(e/defn Hovered? "Returns whether this DOM `node` is hovered over."
+  []
+  (->> (mx/mix
+        (listen> three_obj "pointerenter" (constantly true))
+        (listen> three_obj "pointerout" (constantly false)))
+       (m/reductions {} false)
+       (m/relieve {})
+       new))
+
+(defmacro canvas [renderer camera scene]
+  `(let [!rerender# (atom true)]
+     (binding [rerender-flag !rerender#]
+       (let [renderer# ~renderer
+             node# (.-domElement renderer#)
+             rect# (new (size>  dom/node state))
+             [width# height#] (-size rect#)]
+         (.appendChild dom/node node#)
+         (binding [view-port-ratio (/ width# height#)]
+             (let [camera# ~camera
+                   scene# ~scene
+                   tick# (e/client e/system-time-ms)]
+               (new init-callbacksystem rect# scene# camera#)
+               (binding [dom/node node#]
+                 ((node-resized rerender-flag) renderer# width# height#)
+                 (.setPixelRatio renderer# window/devicePixelRatio)
+                 (-render renderer# scene# camera# tick# !rerender#)
+                 (e/on-unmount #(do
+                                  (some-> (.-parentNode node#) (.removeChild node#)))))))))))
 
 
-(e/defn directionalLight [color intensity pos]
-  #?(:cljs
-     (let [light (-directionalLight color intensity pos)]
-       (e/on-unmount #(do
-                        (.removeFromParent light)
-                        (.dispose light)))
-       light)))
+(comment
+  (macroexpand `(three_js))
+  )
+(comment
+  (use 'clojure.walk)
+
+  (defn a []
+    (let [e (fn [] 42)]
+      (e)))
+  (macroexpand  `(canvas a b c))
+  (macroexpand-all `(props {:a 1 :b {:c 3}}))
+
+  (namespace :three/foo)
+
+  (macroexpand-all  `(th2/Scene (th2/Mesh (th2/BoxGeometry)
+                                          (th2/MeshBasicMaterial
+                                           (th2/props {:color  {:r 0.5 :g 0.0 :b (/ state 10)}})))))
+
+  (macroexpand-all
+   `(PerspectiveCamera 75 1 0.1 1000
+                       (props {:position (vec3 0 0 2)})))
 
 
-(defn -pointLight [color intensity distance decay pos]
-  #?(:cljs (let [light (three/PointLight. color intensity distance decay)
-                 [x y z] pos]
-             (.normalize (.set (.-position light) x y z))
-             light)))
-
-
-(e/defn pointLight [color intensity distance decay pos]
-  #?(:cljs
-     (let [light (-pointLight color intensity distance decay pos)]
-       (e/on-unmount #(do
-                        (.removeFromParent light)
-                        (.dispose light)))
-       light)))
+  1)
