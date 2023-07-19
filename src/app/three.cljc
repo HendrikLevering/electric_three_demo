@@ -33,9 +33,11 @@
   ([cls a# b# c# d# e# f# g# h# i# j#]    #?(:cljs (new cls a# b# c# d# e# f# g# h# i# j#)))
   ([cls a# b# c# d# e# f# g# h# i# j# k#] #?(:cljs (new cls a# b# c# d# e# f# g# h# i# j# k#))))
 
+
 (e/def three_obj)
 (e/def rerender-flag)
 (e/def view-port-ratio)
+
 
 (defmacro mark-render! []
   `(reset! rerender-flag true))
@@ -46,9 +48,7 @@
         body-args (rest body)
         s (symbol cls)]
     `(do
-       (println ~cls ~@args (type (symbol ~cls)))
        (let [obj# (apply interop-js ~s ~args)]
-         (println obj#)
          (set! (.-listeners obj#) (atom {}))
          (binding [three_obj obj#]
            (e/on-unmount #(mark-render!))
@@ -58,7 +58,6 @@
 
 
 (defmacro disposable-obj [cls body]
-  (println body)
   `(do
      (bare-obj ~cls
                [(e/on-unmount #(.dipose three_obj))]
@@ -91,6 +90,18 @@
                   `(let [org-val# (.. three_obj ~@path)]
                      ((set-prop-fn ~path) ~v)
                      (unmount-prop #((set-prop-fn ~path) org-val#))))) (sort-by first (flatten-props m)))))
+
+
+(defn invoke-setter [rerender-flag obj setfn & args]
+  (apply setfn obj args)
+  (reset! rerender-flag true))
+
+
+(defmacro setter [undo setfn & args]
+  `(do
+     (invoke-setter rerender-flag three_obj ~setfn ~@args)
+     (e/on-unmount #(~undo three_obj))
+     three_obj))
 
 
 (defmacro gen_factory [mname kw macro]
@@ -140,6 +151,20 @@
 (gen_factory MeshBasicMaterial :three/MeshBasicMaterial disposable-obj)
 (gen_factory MeshStandardMaterial :three/MeshStandardMaterial disposable-obj)
 
+
+(defn set_camera [camera pos target]
+  (let [{px :x py :y pz :z} pos
+        {tx :x ty :y tz :z} target]
+    (set! (.. camera -position -x) px)
+    (set! (.. camera -position -y) py)
+    (set! (.. camera -position -z) pz)
+    (.lookAt camera tx ty tz)
+    (.updateProjectionMatrix camera)))
+
+#?(:cljs (defn reset_camera [camera]
+           (set! (.-position camera) (three/Vector3. 0 0 0))
+           (.lookAt camera 0 0 0)
+           (.updateProjectionMatrix camera)))
 
 (defn -control-render [mat s]
   (reset! s true))
