@@ -1,6 +1,7 @@
 # electric-starter-app
 
 ```
+$ npm install
 $ clj -A:dev -X user/main
 
 Starting Electric compiler and server...
