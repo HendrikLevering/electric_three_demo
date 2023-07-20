@@ -19,19 +19,19 @@
              [[p m]]))))
 
 
-(defn interop-js
-  ([cls]                                  #?(:cljs (new cls)))
-  ([cls a#]                               #?(:cljs (new cls a#)))
-  ([cls a# b#]                            #?(:cljs (new cls a# b#)))
-  ([cls a# b# c#]                         #?(:cljs (new cls  a# b# c#)))
-  ([cls a# b# c# d#]                      #?(:cljs (new cls a# b# c# d#)))
-  ([cls a# b# c# d# e#]                   #?(:cljs (new cls a# b# c# d# e#)))
-  ([cls a# b# c# d# e# f#]                #?(:cljs (new cls a# b# c# d# e# f#)))
-  ([cls a# b# c# d# e# f# g#]             #?(:cljs (new cls a# b# c# d# e# f# g#)))
-  ([cls a# b# c# d# e# f# g# h#]          #?(:cljs (new cls a# b# c# d# e# f# g# h#)))
-  ([cls a# b# c# d# e# f# g# h# i#]       #?(:cljs (new cls a# b# c# d# e# f# g# h# i#)))
-  ([cls a# b# c# d# e# f# g# h# i# j#]    #?(:cljs (new cls a# b# c# d# e# f# g# h# i# j#)))
-  ([cls a# b# c# d# e# f# g# h# i# j# k#] #?(:cljs (new cls a# b# c# d# e# f# g# h# i# j# k#))))
+#?(:cljs (defn interop-js
+           ([^js cls]                                  #?(:cljs (new cls)))
+           ([^js cls a#]                               #?(:cljs (new cls a#)))
+           ([^js cls a# b#]                            #?(:cljs (new cls a# b#)))
+           ([^js cls a# b# c#]                         #?(:cljs (new cls  a# b# c#)))
+           ([^js cls a# b# c# d#]                      #?(:cljs (new cls a# b# c# d#)))
+           ([^js cls a# b# c# d# e#]                   #?(:cljs (new cls a# b# c# d# e#)))
+           ([^js cls a# b# c# d# e# f#]                #?(:cljs (new cls a# b# c# d# e# f#)))
+           ([^js cls a# b# c# d# e# f# g#]             #?(:cljs (new cls a# b# c# d# e# f# g#)))
+           ([^js cls a# b# c# d# e# f# g# h#]          #?(:cljs (new cls a# b# c# d# e# f# g# h#)))
+           ([^js cls a# b# c# d# e# f# g# h# i#]       #?(:cljs (new cls a# b# c# d# e# f# g# h# i#)))
+           ([^js cls a# b# c# d# e# f# g# h# i# j#]    #?(:cljs (new cls a# b# c# d# e# f# g# h# i# j#)))
+           ([^js cls a# b# c# d# e# f# g# h# i# j# k#] #?(:cljs (new cls a# b# c# d# e# f# g# h# i# j# k#)))))
 
 
 (e/def three_obj)
@@ -43,13 +43,15 @@
   `(reset! rerender-flag true))
 
 
+#?(:cljs(defn -setlistener [^js obj val]
+          (set! (.-listeners  obj) val)))
 (defmacro bare-obj [cls  unmount-fns body]
   (let [args  (first body)
         body-args (rest body)
         s (symbol cls)]
     `(do
        (let [obj# (apply interop-js ~s ~args)]
-         (set! (.-listeners obj#) (atom {}))
+         (-setlistener  obj# (atom {}))
          (binding [three_obj obj#]
            (e/on-unmount #(mark-render!))
            ~@body-args
@@ -57,17 +59,25 @@
            obj#)))))
 
 
+#?(:cljs (defn -dispose [^js obj]
+           (.dispose obj)))
+
+
 (defmacro disposable-obj [cls body]
   `(do
      (bare-obj ~cls
-               [(e/on-unmount #(.dipose three_obj))]
+               [(e/on-unmount #(-dispose three_obj))]
                ~body)))
 
+
+
+#?(:cljs (defn -removeFromParent [^js obj]
+           (.removeFromParent obj)))
 
 (defmacro scene-obj [cls body]
   `(let [obj# (disposable-obj ~cls ~body)]
 
-     (e/on-unmount #(.removeFromParent obj#))
+     (e/on-unmount #(-removeFromParent  obj#))
      (.add three_obj obj#)
      (mark-render!)
 
@@ -152,16 +162,16 @@
 (gen_factory MeshStandardMaterial :three/MeshStandardMaterial disposable-obj)
 
 
-(defn set_camera [camera pos target]
-  (let [{px :x py :y pz :z} pos
-        {tx :x ty :y tz :z} target]
-    (set! (.. camera -position -x) px)
-    (set! (.. camera -position -y) py)
-    (set! (.. camera -position -z) pz)
-    (.lookAt camera tx ty tz)
-    (.updateProjectionMatrix camera)))
+#?(:cljs (defn set_camera [^js camera pos target]
+           (let [{px :x py :y pz :z} pos
+                 {tx :x ty :y tz :z} target]
+             (set! (.. camera -position -x) px)
+             (set! (.. camera -position -y) py)
+             (set! (.. camera -position -z) pz)
+             (.lookAt camera tx ty tz)
+             (.updateProjectionMatrix camera))))
 
-#?(:cljs (defn reset_camera [camera]
+#?(:cljs (defn reset_camera [^js camera]
            (set! (.-position camera) (three/Vector3. 0 0 0))
            (.lookAt camera 0 0 0)
            (.updateProjectionMatrix camera)))
@@ -185,8 +195,8 @@
 
 (gen_factory OrbitControls :orbitcontrols/OrbitControls disposable-obj)
 
-(defn -render [renderer scene camera tick !rerender]
-  #?(:cljs (when @!rerender
+#?(:cljs (defn -render [^js renderer ^js scene ^js camera tick !rerender]
+           (when @!rerender
              (print "render")
              (reset! !rerender false)
              (.updateProjectionMatrix camera)
@@ -194,7 +204,7 @@
 
 (defn -size [rect] [(.-width rect) (.-height rect)])
 
-(defn size> [node state]
+(defn size> [node]
   #?(:cljs (->> (m/observe (fn [!]
                              (! (-> node .getBoundingClientRect))
                              (let [resize-observer (js/ResizeObserver. (fn [[nd] _] (! (-> nd .-target .getBoundingClientRect))))]
@@ -203,19 +213,19 @@
                 (m/relieve {}))))
 
 
-(defn node-resized [flag]
-  (fn [renderer w h]
-    (.setSize renderer w h)
-    (reset! flag true)))
+#?(:cljs (defn node-resized [flag]
+           (fn [^js renderer w h]
+             (.setSize renderer w h)
+             (reset! flag true))))
 
 
-#?(:cljs (defn dom-listener [obj typ f]
+#?(:cljs (defn dom-listener [^js obj typ f]
            (swap! (.-listeners obj) update typ #(if (nil? %) #{f} (conj % f)))
            #(swap! (.-listeners obj)   update typ (fn [x] (disj x f)))))
 
 #?(:cljs (defn listen> ; we intend to replace this in UI5 workstream
-           ([node event-type] (listen> node event-type identity))
-           ([node event-type keep-fn!]
+           ([^js node event-type] (listen> node event-type identity))
+           ([^js node event-type keep-fn!]
             (m/relieve {}
                        (m/observe (fn [!]
                                     (dom-listener node event-type #(when-some [v (keep-fn! %)]
@@ -300,10 +310,10 @@
                        (-call-event-stack {:obj (v "object") :e e :data v} k)) obj)
                 )))))
 
-(e/defn init-callbacksystem [rect scene camera]
-  (let [f (-on-event2)]
-    (dom/on! "pointermove" #(f % rect scene camera "pointermove")))
-  (dom/on! "click" #(-on-event % rect scene camera "click")))
+#?(:cljs (e/defn init-callbacksystem [^js rect ^js scene ^js camera]
+           (let [f (-on-event2)]
+             (dom/on! "pointermove" #(f % rect scene camera "pointermove")))
+           (dom/on! "click" #(-on-event % rect scene camera "click"))))
 
 
 (e/defn Hovered? "Returns whether this DOM `node` is hovered over."
@@ -315,12 +325,16 @@
        (m/relieve {})
        new))
 
+
+#?(:cljs (defn -setPixelRatio [^js obj]
+           (.setPixelRatio obj (.-devicePixelRatio js/window))))
+
 (defmacro canvas [renderer camera scene]
   `(let [!rerender# (atom true)]
      (binding [rerender-flag !rerender#]
        (let [renderer# ~renderer
              node# (.-domElement renderer#)
-             rect# (new (size>  dom/node state))
+             rect# (new (size>  dom/node))
              [width# height#] (-size rect#)]
          (.appendChild dom/node node#)
          (binding [view-port-ratio (/ width# height#)]
@@ -330,7 +344,7 @@
                (new init-callbacksystem rect# scene# camera#)
                (binding [dom/node node#]
                  ((node-resized rerender-flag) renderer# width# height#)
-                 (.setPixelRatio renderer# window/devicePixelRatio)
+                 (-setPixelRatio renderer#)
                  (-render renderer# scene# camera# tick# !rerender#)
                  (e/on-unmount #(do
                                   (some-> (.-parentNode node#) (.removeChild node#)))))))))))

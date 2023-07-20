@@ -27,7 +27,7 @@
        (m/reductions ((fn []
                         (let [l (volatile! nil)]
                           (fn
-                            ([] [0 0])
+                             ([] [0 0])
                             ([r e]
                              (if-let [[x0 y0] (deref l)]
                                (let [x1 (.-pageX e)
